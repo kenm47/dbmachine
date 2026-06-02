@@ -172,6 +172,24 @@ Tests requiring the `btree_gist` extension (the exclusion-constraint invariant)
 run in CI against stock `postgres:16`; the embedded test Postgres omits contrib
 and those tests skip locally.
 
+## FAQ
+
+**If the agent can author the spec, what stops it from changing the guarantees first?**
+
+The schema change pathway is structurally inaccessible to the agent — not just trust-based.
+
+The spec (`app.dbm.yaml`) lives in version control, not in the database. The `migrate` command — the only thing that turns spec changes into live schema — is operator-only and not exposed to the agent role. So even if an agent modified the YAML file, nothing changes in the database until a human runs `dbmachine migrate`.
+
+More importantly, the constraints that matter (CHECK, UNIQUE, FK, GiST exclusion constraints) live inside Postgres, not in the application layer. The agent connects via a restricted `dbm_agent` database role with SELECT/INSERT/UPDATE grants but no DDL permissions. It physically cannot issue `ALTER TABLE` or drop a constraint — the database rejects it regardless of what the agent tries.
+
+The separation is operator vs. agent as distinct trust tiers, enforced by:
+
+1. **Filesystem access** — only the operator can edit the spec and run `migrate`
+2. **Database role permissions** — the agent role has no DDL rights
+3. **Postgres-level structural constraints** — no prompt engineering overrides a GiST exclusion constraint
+
+The guarantees live in the database. The agent can't subvert them first because it never had access to change them at all.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
