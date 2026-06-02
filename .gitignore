@@ -1,0 +1,29 @@
+# dbmachine project-local state
+.dbmachine/build/
+**/.dbmachine/build/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv/
+.venv*/
+.env
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+
+# Local agent tooling (not part of dbmachine)
+.claude/
+.defract/
+.defract-worktrees/

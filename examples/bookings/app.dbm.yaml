@@ -1,0 +1,137 @@
+app:
+  name: bookings
+  description: >
+    A simple appointment booking system. Customers book time windows on shared
+    resources (rooms, equipment, staff). The database structurally guarantees no
+    resource is ever double-booked.
+  version: 0.1.0
+
+enums:
+  appointment_status:
+    description: Lifecycle state of an appointment.
+    values: [pending, confirmed, cancelled]
+
+entities:
+  customer:
+    description: A person who books appointments.
+    fields:
+      name:
+        type: text
+        required: true
+        description: Full name of the customer.
+      email:
+        type: text
+        required: true
+        unique: true
+        description: Contact email; unique across customers.
+      phone:
+        type: text
+        description: Optional phone number.
+
+  resource:
+    description: A bookable resource such as a room, table, or staff member.
+    fields:
+      name:
+        type: text
+        required: true
+        description: Human-readable resource name.
+      capacity:
+        type: integer
+        default: 1
+        description: How many people the resource holds.
+
+  appointment:
+    description: A booking of one resource for one customer over a time window.
+    fields:
+      starts_at:
+        type: timestamptz
+        required: true
+        description: Inclusive start of the booking window.
+      ends_at:
+        type: timestamptz
+        required: true
+        description: Exclusive end of the booking window.
+      status:
+        type: enum
+        enum: appointment_status
+        default: pending
+        description: Current lifecycle state.
+      notes:
+        type: text
+        description: Free-form notes about the booking.
+    relationships:
+      customer:
+        belongs_to: customer
+        required: true
+        on_delete: cascade
+        description: The customer who made the booking.
+      resource:
+        belongs_to: resource
+        required: true
+        on_delete: restrict
+        description: The resource being booked.
+    checks:
+      - name: ends_after_starts
+        expr: "ends_at > starts_at"
+        description: A booking must end after it starts.
+    exclusions:
+      - name: no_double_booking
+        description: >
+          A resource cannot have two non-cancelled bookings whose time windows
+          overlap. Enforced structurally by a GiST exclusion constraint.
+        using: gist
+        with:
+          - { field: resource_id, op: "=" }
+          - { expr: "tstzrange(starts_at, ends_at)", op: "&&" }
+        where: "status <> 'cancelled'"
+    indexes:
+      - name: idx_appointment_starts_at
+        fields: [starts_at]
+
+operations:
+  confirm_appointment:
+    description: Confirm a pending appointment, moving it to the confirmed state.
+    inputs:
+      appointment_id:
+        type: uuid
+        required: true
+        description: ID of the appointment to confirm.
+    implementation: ops.confirm_appointment
+    entities: [appointment]
+
+  cancel_appointment:
+    description: Cancel an appointment, freeing the resource's time window.
+    inputs:
+      appointment_id:
+        type: uuid
+        required: true
+        description: ID of the appointment to cancel.
+      reason:
+        type: text
+        description: Optional cancellation reason, appended to notes.
+    implementation: ops.cancel_appointment
+    entities: [appointment]
+
+views:
+  upcoming_appointments:
+    description: All confirmed appointments starting in the future, soonest first.
+    sql: >
+      SELECT a.id, a.starts_at, a.ends_at, c.name AS customer, r.name AS resource
+      FROM appointment a
+      JOIN customer c ON c.id = a.customer_id
+      JOIN resource r ON r.id = a.resource_id
+      WHERE a.status = 'confirmed' AND a.starts_at > now()
+      ORDER BY a.starts_at
+
+seeds:
+  resource:
+    - { name: "Room A", capacity: 8 }
+    - { name: "Room B", capacity: 4 }
+
+policies:
+  agent:
+    description: The AI agent role — may read/write bookings but not hard-delete them.
+    entities:
+      appointment: { select: true, insert: true, update: true, delete: false }
+      customer: { select: true, insert: true, update: true, delete: false }
+      resource: { select: true, insert: false, update: false, delete: false }

@@ -1,0 +1,115 @@
+app:
+  name: crm
+  description: >
+    A minimal CRM with companies, contacts and deals. Demonstrates relational
+    modelling (belongs_to / has_many), enums, a custom revenue operation, and a
+    reporting view for pipeline analytics.
+  version: 0.1.0
+
+enums:
+  deal_stage:
+    description: Sales pipeline stage of a deal.
+    values: [lead, qualified, proposal, won, lost]
+
+entities:
+  company:
+    description: An organisation we sell to.
+    fields:
+      name:
+        type: text
+        required: true
+        unique: true
+        description: Legal/display name of the company.
+      domain:
+        type: text
+        description: Primary web domain (e.g. acme.com).
+      industry:
+        type: text
+        description: Industry sector.
+
+  contact:
+    description: A person who works at a company.
+    fields:
+      name:
+        type: text
+        required: true
+        description: Full name.
+      email:
+        type: text
+        unique: true
+        description: Work email.
+      title:
+        type: text
+        description: Job title.
+    relationships:
+      company:
+        belongs_to: company
+        required: true
+        on_delete: cascade
+        description: The company this contact works at.
+
+  deal:
+    description: A potential or closed sale tied to a company.
+    fields:
+      title:
+        type: text
+        required: true
+        description: Short name for the deal.
+      amount:
+        type: numeric
+        default: 0
+        description: Deal value in dollars.
+      stage:
+        type: enum
+        enum: deal_stage
+        default: lead
+        description: Current pipeline stage.
+      closed_at:
+        type: timestamptz
+        description: When the deal was won or lost.
+    relationships:
+      company:
+        belongs_to: company
+        required: true
+        on_delete: cascade
+        description: The company the deal is with.
+    checks:
+      - name: amount_non_negative
+        expr: "amount >= 0"
+        description: Deal amounts cannot be negative.
+    indexes:
+      - name: idx_deal_stage
+        fields: [stage]
+
+operations:
+  win_deal:
+    description: Mark a deal as won, stamping the close time and recording revenue.
+    inputs:
+      deal_id:
+        type: uuid
+        required: true
+        description: ID of the deal to mark won.
+    implementation: ops.win_deal
+    entities: [deal]
+
+views:
+  pipeline_by_stage:
+    description: Open-deal count and total value grouped by pipeline stage.
+    sql: >
+      SELECT stage, count(*) AS deals, COALESCE(sum(amount), 0) AS total_value
+      FROM deal
+      WHERE stage NOT IN ('won', 'lost')
+      GROUP BY stage
+      ORDER BY total_value DESC
+
+seeds:
+  company:
+    - { name: "Acme Corp", domain: "acme.com", industry: "Manufacturing" }
+
+policies:
+  agent:
+    description: The AI agent role — full read/write, no hard deletes.
+    entities:
+      company: { select: true, insert: true, update: true, delete: false }
+      contact: { select: true, insert: true, update: true, delete: false }
+      deal: { select: true, insert: true, update: true, delete: false }

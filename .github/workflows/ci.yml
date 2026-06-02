@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dbm
+          POSTGRES_PASSWORD: dbm
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dbm -d app"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      # Real postgres:16 includes btree_gist, so the exclusion-constraint
+      # invariant test runs here (it skips on the embedded test Postgres).
+      DBMACHINE_TEST_DSN: postgresql+psycopg://dbm:dbm@localhost:5432/app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+
+      - name: Run tests
+        run: uv run pytest -v
+
+      - name: Smoke-test the CLI end-to-end
+        run: |
+          uv run dbmachine --help
+          uv run python -c "from dbmachine.core.compiler import render_schema_sql; from dbmachine.core.spec import load_spec; print(render_schema_sql(load_spec('examples/bookings/app.dbm.yaml'))[:200])"
