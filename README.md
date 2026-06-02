@@ -184,11 +184,27 @@ More importantly, the constraints that matter (CHECK, UNIQUE, FK, GiST exclusion
 
 The separation is operator vs. agent as distinct trust tiers, enforced by:
 
-1. **Filesystem access** — only the operator can edit the spec and run `migrate`
+1. **`migrate` is operator-only** — the agent can edit the spec file, but only the operator can run `migrate` to apply changes to the live database
 2. **Database role permissions** — the agent role has no DDL rights
 3. **Postgres-level structural constraints** — no prompt engineering overrides a GiST exclusion constraint
 
 The guarantees live in the database. The agent can't subvert them first because it never had access to change them at all.
+
+**What's the UX for making a schema change? Does the agent submit a PR, then the operator runs migrate?**
+
+Essentially yes, but one step simpler than you might expect.
+
+The agent *can* edit `app.dbm.yaml` directly — it's just a file. What it can't do is run `dbmachine migrate`, which is the command that applies spec changes to the live database. That's the gate.
+
+The simplest flow:
+
+1. Agent edits the spec (adds the new field, entity, constraint, etc.)
+2. Agent tells the operator: "I've updated the spec — please run `dbmachine migrate`"
+3. Operator runs `dbmachine migrate --dry-run` to preview, then runs it for real
+
+There's no separate "create the migration" step — Alembic automatically diffs the spec against the live database and generates the SQL. Destructive changes (dropping a column, renaming a table) require an explicit `--confirm` flag so nothing data-loss happens silently.
+
+A PR-based workflow is the natural pattern for any production setup: agent proposes the spec change as a PR, operator reviews and merges, then runs `migrate`. But that's a process convention, not something dbmachine enforces — in a local/trusted setup the agent can just edit the file in place.
 
 ## License
 
